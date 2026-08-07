@@ -427,4 +427,32 @@ def scan_universe(price_data: dict[str, pd.DataFrame], config: FilterConfig = Fi
         })
     return pd.DataFrame(rows).set_index("symbol")
 
+DeekSeek's Response:
+
+Yes, I accessed it. Here's my critical take, grounded in what we've actually established about Apollo's engine.
+Where I'd answer differently than Claude
+
+1. The composite score isn't four orthogonal axes — it's one factor with four names. Exponential slope×R², relative strength, RSI stack, and volume confirmation are all trend-family, cross-sectionally correlated signals. On any given day they rank stocks in nearly the same order. The 35/25/20/20 split is illusory precision — the effective model is ~one-and-a-half factors (trend + a volume tilt). Claude calls them "two orthogonal axes" (strength vs risk), but the strength axis itself is internally correlated.
+
+2. This codebase already tried this — and deliberately demoted it. apollo_core/bucket_classifier.py classifies into 8 buckets using the same signal family (200-DMA slope, DMA50-vs-200 gap, 6M return, ADX, new-low rate), with score multipliers and a SKIP_BUCKETS gate. As of v3.4.1 it was made reference-only: there's an explicit guard "BUCKET IS REFERENCE-ONLY — NEVER used as a gate" (bucket_classifier.py:272-280), and get_score_multiplier is now "recorded for transparency" only (trade_engine.py:296). The prior in this codebase is that bucket-gating didn't earn its place. Claude's tier system is a re-ranking of the same signal family. The burden of proof is on showing it beats the existing 0-100 score, not on reproducing it in a new taxonomy.
+
+3. No validation protocol — and we know why that matters. The doc says "thresholds are standard defaults, not backtested — calibrate," but never specifies how to calibrate. That's roughly 10 free parameters (ADX 20, CHOP 61.8, BBW 20th pctile, R²≥0.5, 2-of-3, quartile cutoffs, 20-25% extension). With our discipline: these must be selected on train data and evaluated out-of-sample via walk-forward, exactly as we did for SL and indicator exits. Recall indicator exits looked great in-sample (RSI_SAT+20 +1294.6%) and lost out-of-sample (+31.9%/yr vs SL20 +38.9%/yr). A tier system is a bigger, more flexible version of that same risk.
+
+4. Percentile tiers degenerate on Apollo's actual universe. Claude notes quartiles are ~12-13 names at NIFTY 50 scale. Apollo's runnable universe is far smaller (we found 5 symbols with real data). Percentile ranking on 20-50 names produces quartiles of 5-12 names where boundary flapping is severe — hysteresis helps but doesn't fix rank noise at that n. The doc acknowledges "needs a broad-enough universe" but the threshold where it breaks is much higher than he implies.
+
+5. Integration gaps with THIS engine: min_bars=252 marks every recently-listed name UNDEFINED — but Apollo has a dedicated IPO pathway (run_ipo_backtest, 12 signals, normalized 0-100) that these names are supposed to flow through. The trend filter would strand them. And the risk-overlay "EXTENSION → route to exit" idea contradicts our empirical result that indicator/extension exits don't beat a wide SL out-of-sample.
+What I'd genuinely add (the good parts)
+
+    Circuit-lock handling is the single most valuable idea in the doc. It's NSE-specific, absent from US-centric TA, and I verified it's not in Apollo's indicators. A limit-locked session spikes volume/RSI/ADX scores artificially. Worth adding to compute_all_indicators regardless of anything else.
+    "Earned, not default" and the exclude-by-default state machine — correct design. Agree fully.
+    Hysteresis (2-session confirmation) — correct, matches what a live scanner needs.
+    The risk overlay as a route, not a demote — aligns with Apollo's reference-only philosophy.
+
+My recommendation if you build it
+
+    Make tiers a post-score overlay that reorders the run queue, not a gate — consistent with Apollo's own v3.4.1 decision.
+    Run the honest test first: does "PRIME" actually separate forward returns from "WATCH" out-of-sample? The decisive experiment is identical to our indicator-exit walk-forward: select tier cutoffs on train data, measure OOS per-tier mean return / hit rate. If PRIME doesn't beat WATCH OOS, the edifice is decorative and you've saved weeks.
+    Test it against the baseline that matters: tier-based priority vs simply using Apollo's existing score. If tiers don't add signal over the score you already emit, don't build a parallel scoring system.
+
+Net: it's a competent expert-TA taxonomy, but as an engineering proposal for Apollo it undersells the validation problem, overclaims signal orthogonality, and ignores that a near-identical classifier was already tried here and made reference-only. The circuit-lock fix is the piece I'd implement unconditionally.
 
