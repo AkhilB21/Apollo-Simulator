@@ -569,3 +569,34 @@ This mirrors what you already did for SL/indicator exits and gives you a direct 
 
 **Add that neither covered**: Sector rotation overlay, time-in-tier decay, and the specific walk-forward calibration protocol. These are the gaps where I think there's genuine alpha to be found beyond what either Claude or DeepSeek proposed.
 
+DeepSeek's Response
+
+Yes, I read it. Overall: GLM's response is high-quality and largely convergent with my critique — but two of his four "genuine additions" are weak, and he misses a real integration gap. Here's my view.
+Where GLM is right
+
+    Correlation test as the decisive gate — his #3 is the single best idea in his whole response. Concrete, cheap, falsifiable: if corr(apollo_score, composite) > 0.7, the tier system is a costume change. I'd go further than his framing though — correlation alone isn't decisive. Low correlation + non-monotonic OOS tier returns is still a fail; high correlation with superior OOS separation would be a win. The real test is OOS per-tier forward-return separation with a trade-count floor, not the corr coefficient per se. But his protocol is the right shape.
+    Percentile instability below ~100 names — he extends my point correctly, and the "min-universe gate → else binary PASS/FAIL" fallback is pragmatic.
+    Sideways sub-classification is dead code without a separate pathway — correct. Reason codes have minor diagnostic value, but if tight_base maps to the same EXCLUDE action, the label earns nothing. Agree with collapse-or-build-pathway.
+    Correlation-matrix-first before trusting the 35/25/20/20 weights — fine, and cheap since Apollo already computes most of these indicators.
+
+Where GLM is weak
+
+1. Time-in-tier decay is his worst idea — and it's the one he's most proud of. The premise ("Tier 1 for 30+ sessions is statistically more likely to mean-revert") is an unverified assertion that conflicts with the momentum literature — medium-horizon momentum persistence is well-documented; a 30-session trend is typically stronger, not weaker, over the next months. The constant 1.0 - 0.005 * min(days_in_tier, 40) is a made-up number with zero empirical basis — exactly the "false precision" he rightly criticizes in Claude's weights. And tenure-based rotation actively punishes holding winners. This needs the same walk-forward validation as everything else, and the prior runs against it. I'd put it in the "test before believing" bucket, not "genuinely add."
+
+2. His walk-forward objective Sharpe(PRIME)/Sharpe(WATCH) is gameable. When Sharpe(WATCH) → 0 (small sample, near-zero denominator), the ratio explodes — the optimizer will converge on exactly that. The guard should be: maximize PRIME Sharpe subject to n ≥ floor on every tier, and require monotonic OOS separation (PRIME > CONFIRMED > EMERGING > WATCH) with a significance check on PRIME-vs-WATCH. Ratio-of-tier-quality is the wrong target.
+
+3. The "fresh_breakout" override re-imports the whipsaw he warns about. A new-20-day-high + close-above-EMA50 bypass is a single-indicator gate wearing a "regime-change" hat — the precise failure mode his own 2-of-3 design exists to prevent. On NSE smallcaps, breakout-on-a-gap is also a high-failure-rate entry (many are distribution spikes, which is exactly why the circuit-lock caveat matters). Plausible, testable, but it should enter as a hypothesis competing against the 2-of-3 gate in walk-forward — not as a baked-in override.
+What GLM genuinely adds (the two that earn their place)
+
+1. Sector rotation overlay — his best contribution. It's a genuinely independent factor (cross-sectional breadth within a sector), and "sector-riding vs idiosyncratic" is a testable, economically meaningful decomposition. No one else proposed it. Caveats: Apollo has no sector mapping for its universe today (would need a GICS/BCAST mapping table), and it inherits the same data availability problem as everything else — verify sector tags exist before designing around it.
+
+2. Correlation test + calibration protocol — as covered above, with my objective-function correction.
+What GLM missed
+
+    The IPO pathway gap. Neither he nor Claude addresses that min_bars=252 strands every recently-listed name, while Apollo has a dedicated run_ipo_backtest (12-signal, normalized 0-100) path those names must flow through. His sector overlay and decay both inherit this — the filter, tiers, or decay applied to an IPO name is applied to the wrong scoring pipeline. This is an Apollo-specific integration point he's unaware of, which is exactly why "build generic TA, wire into Apollo" keeps producing seams.
+    He accepts "volume is the only partially independent signal" without noting we have empirical evidence volume-ish exits failed OOS. The volume confirmation component deserves the same skepticism as the RSI-stack component — not a pass.
+
+Bottom line
+
+The convergence between GLM and me is a good sign — the core architecture (earned-not-default, hysteresis, circuit-lock, reference-only overlay) is now consensus. The ordering of investment: circuit-lock + hysteresis first (unconditional), correlation test next (30-minute gate), sector overlay only after Apollo gets sector data. Skip the time-in-tier decay until its momentum-reversal premise is tested, and run any "fresh_breakout" override as a walk-forward competitor, not a default.
+
